@@ -315,6 +315,10 @@ CONFIG(sbcelt) {
   }
   CONFIG(no-bundled-celt) {
     INCLUDEPATH	*= /usr/include/celt
+    unix {
+      QMAKE_CFLAGS *= "-isystem /usr/include/celt"
+      QMAKE_CXXFLAGS *= "-isystem /usr/include/celt"
+    }
   }
   !CONFIG(no-bundled-celt) {
     INCLUDEPATH *= ../../3rdparty/celt-0.7.0-src/libcelt
@@ -329,7 +333,7 @@ CONFIG(sbcelt) {
   CONFIG		*= dbus
 }
 
-!CONFIG(no-g15) {
+!freebsd:!CONFIG(no-g15) {
   CONFIG *= g15
 }
 
@@ -353,6 +357,10 @@ unix:!CONFIG(bundled-opus):system(pkg-config --exists opus) {
     INCLUDEPATH *= ../../3rdparty/opus-src/celt ../../3rdparty/opus-src/include ../../3rdparty/opus-src/src ../../3rdparty/opus-build/src
     DEFINES *= USE_OPUS
     LIBS *= -lopus
+    unix {
+      QMAKE_CFLAGS *= "-isystem  ../../3rdparty/opus-src/celt" "-isystem ../../3rdparty/opus-src/include"
+      QMAKE_CXXFLAGS *= "-isystem  ../../3rdparty/opus-src/celt" "-isystem ../../3rdparty/opus-src/include"
+    }
   }
 }
 
@@ -362,16 +370,11 @@ win32 {
   } else {
     RC_FILE = mumble.rc
   }
-  HEADERS	*= GlobalShortcut_win.h Overlay_win.h TaskList.h
-  SOURCES	*= GlobalShortcut_win.cpp TextToSpeech_win.cpp Overlay_win.cpp SharedMemory_win.cpp Log_win.cpp os_win.cpp TaskList.cpp ../../overlay/HardHook.cpp ../../overlay/ods.cpp
-  LIBS		*= -ldxguid -ldinput8 -lsapi -lole32 -lws2_32 -ladvapi32 -lwintrust -ldbghelp -llibsndfile-1 -lshell32 -lshlwapi -luser32 -lgdi32 -lpsapi
+  HEADERS	*= GlobalShortcut_win.h Overlay_win.h TaskList.h UserLockFile.h
+  SOURCES	*= GlobalShortcut_win.cpp TextToSpeech_win.cpp Overlay_win.cpp SharedMemory_win.cpp Log_win.cpp os_win.cpp TaskList.cpp ../../overlay/ods.cpp UserLockFile_win.cpp
+  LIBS		*= -ldxguid -ldinput8 -lsapi -lole32 -lws2_32 -ladvapi32 -lwintrust -ldbghelp -lshell32 -lshlwapi -luser32 -lgdi32 -lpsapi
+  LIBS		*= -logg -lvorbis -lvorbisfile -lFLAC -lsndfile
   LIBS		*= -ldelayimp -delayload:shell32.dll
-
-  equals(QMAKE_TARGET.arch, x86_64) {
-    DEFINES += USE_MINHOOK
-    INCLUDEPATH *= ../../3rdparty/minhook-src/include
-    LIBS *= -lminhook
-  }
 
   DEFINES	*= WIN32
   !CONFIG(no-asio) {
@@ -391,6 +394,15 @@ win32 {
     HEADERS *= GKey.h
     SOURCES *= GKey.cpp
     DEFINES *= USE_GKEY
+  }
+
+  !CONFIG(no-xboxinput) {
+    CONFIG *= xboxinput
+  }
+  CONFIG(xboxinput) {
+    HEADERS *= XboxInput.h
+    SOURCES *= XboxInput.cpp
+    DEFINES *= USE_XBOXINPUT
   }
 
   !CONFIG(mumble_dll) {
@@ -425,7 +437,7 @@ unix {
 
   CONFIG *= link_pkgconfig
 
-  PKGCONFIG *= openssl sndfile
+  PKGCONFIG *= sndfile
 
   macx {
     TARGET = Mumble
@@ -435,9 +447,9 @@ unix {
 
     LIBS += -framework Security -framework SecurityInterface -framework ApplicationServices
 
-    HEADERS *= GlobalShortcut_macx.h ConfigDialogDelegate.h
+    HEADERS *= GlobalShortcut_macx.h ConfigDialogDelegate.h AppNap.h
     SOURCES *= SharedMemory_unix.cpp
-    OBJECTIVE_SOURCES *= TextToSpeech_macx.mm GlobalShortcut_macx.mm os_macx.mm Log_macx.mm
+    OBJECTIVE_SOURCES *= TextToSpeech_macx.mm GlobalShortcut_macx.mm os_macx.mm Log_macx.mm AppNap.mm
 
     !CONFIG(no-cocoa) {
         DEFINES *= USE_COCOA
@@ -575,13 +587,14 @@ wasapi {
 
 g15 {
 	DEFINES *= USE_G15
-	unix:!macx {
+	win32|macx {
+		SOURCES *= G15LCDEngine_helper.cpp
+		HEADERS *= G15LCDEngine_helper.h ../../g15helper/g15helper.h
+	}
+	unix:!macx:!freebsd {
 		SOURCES *= G15LCDEngine_unix.cpp
 		HEADERS *= G15LCDEngine_unix.h
 		LIBS *= -lg15daemon_client
-	} else {
-		SOURCES *= G15LCDEngine_helper.cpp
-		HEADERS *= G15LCDEngine_helper.h ../../g15helper/g15helper.h
 	}
 }
 

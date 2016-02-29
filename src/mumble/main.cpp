@@ -55,9 +55,11 @@
 #include "NetworkConfig.h"
 #include "CrashReporter.h"
 #include "SocketRPC.h"
+#include "SSL.h"
 #include "MumbleApplication.h"
 #include "ApplicationPalette.h"
 #include "Themes.h"
+#include "UserLockFile.h"
 
 #if defined(USE_STATIC_QT_PLUGINS) && QT_VERSION < 0x050000
 Q_IMPORT_PLUGIN(qtaccessiblewidgets)
@@ -111,6 +113,8 @@ int main(int argc, char **argv) {
 #if QT_VERSION >= 0x050000 && defined(Q_OS_WIN)
 	a.installNativeEventFilter(&a);
 #endif
+
+	MumbleSSL::initialize();
 
 	#ifdef USE_SBCELT
 	{
@@ -292,6 +296,25 @@ int main(int argc, char **argv) {
 		}
 	}
 
+#ifdef Q_OS_WIN
+	// The code above this block is somewhat racy, in that it might not
+	// be possible to do RPC/DBus if two processes start at almost the
+	// same time.
+	//
+	// In order to be completely sure we don't open multiple copies of
+	// Mumble, we open a lock file. The file is opened without any sharing
+	// modes enabled. This gives us exclusive access to the file.
+	// If another Mumble instance attempts to open the file, it will fail,
+	// and that instance will know to terminate itself.
+	UserLockFile userLockFile(g.qdBasePath.filePath(QLatin1String("mumble.lock")));
+	if (! bAllowMultiple) {
+		if (!userLockFile.acquire()) {
+			qWarning("Another process has already acquired the lock file at '%s'. Terminating...", qPrintable(userLockFile.path()));
+			return 1;
+		}
+	}
+#endif
+
 	// Load preferences
 	g.s.load();
 
@@ -354,11 +377,6 @@ int main(int argc, char **argv) {
 		a.installTranslator(&qttranslator);
 	}
 	
-	if (g.s.qsRegionalHost.isEmpty()) {
-		g.s.qsRegionalHost = qsSystemLocale;
-		g.s.qsRegionalHost = g.s.qsRegionalHost.remove(QRegExp(QLatin1String("^.+_"))).toLower() + QLatin1String(".mumble.info");
-	}
-
 	// Initialize proxy settings
 	NetworkConfig::SetupProxy();
 
@@ -552,6 +570,16 @@ int main(int argc, char **argv) {
 #if (GOOGLE_PROTOBUF_VERSION >= 2001000)
 	google::protobuf::ShutdownProtobufLibrary();
 #endif
+#endif
+
+#ifdef Q_OS_WIN
+	// Release the userLockFile.
+	//
+	// It is important that we release it before we attempt to
+	// restart Mumble (if requested). If we do not release it
+	// before that, the new instance might not be able to start
+	// correctly.
+	userLockFile.release();
 #endif
 	
 	// At this point termination of our process is immenent. We can safely

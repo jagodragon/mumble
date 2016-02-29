@@ -43,6 +43,8 @@
 #include "PacketDataStream.h"
 #include "ServerDB.h"
 #include "ServerUser.h"
+#include "Version.h"
+#include "HTMLFilter.h"
 
 #ifdef USE_BONJOUR
 #include "BonjourServer.h"
@@ -360,6 +362,41 @@ Server::~Server() {
 	log("Stopped");
 }
 
+/// normalizeSuggestVersion normalizes a 'suggestversion' config value.
+/// The config value may be a version string, or a bitmasked
+/// integer representing the version.
+/// This function converts the 'suggestversion' config value to
+/// always be a bitmasked integer representation.
+///
+/// On error, the function returns an empty QVariant.
+static QVariant normalizeSuggestVersion(QVariant suggestVersion) {
+	uint integerValue = suggestVersion.toUInt();
+
+	// If the integer value is 0, it can mean two things:
+	//
+	// Either the suggestversion is set to 0.
+	// Or, the suggestversion is a version string such as "1.3.0",
+	// and cannot be converted to an integer value.
+	//
+	// We handle both cases the same: by pretending the
+	// suggestversion is a version string in both cases.
+	//
+	// If it is a version string, the call to MumbleVersion::getRaw()
+	// will return the bitmasked representation.
+	//
+	// If it is not a version string, the call to MumbleVersion::getRaw()
+	// will return 0, so it is effectively a no-op.
+	if (integerValue == 0) {
+		integerValue = MumbleVersion::getRaw(suggestVersion.toString());
+	}
+
+	if (integerValue != 0) {
+		return integerValue;
+	}
+
+	return QVariant();
+}
+
 void Server::readParams() {
 	qsPassword = Meta::mp.qsPassword;
 	usPort = static_cast<unsigned short>(Meta::mp.usPort + iServerNum - 1);
@@ -441,7 +478,7 @@ void Server::readParams() {
 	bCertRequired = getConf("certrequired", bCertRequired).toBool();
 	bForceExternalAuth = getConf("forceExternalAuth", bForceExternalAuth).toBool();
 
-	qvSuggestVersion = getConf("suggestversion", qvSuggestVersion);
+	qvSuggestVersion = normalizeSuggestVersion(getConf("suggestversion", qvSuggestVersion));
 	if (qvSuggestVersion.toUInt() == 0)
 		qvSuggestVersion = QVariant();
 
@@ -486,6 +523,10 @@ void Server::setLiveConf(const QString &key, const QString &value) {
 		for (int id = 1; id < iMaxUsers * 2; ++id)
 			if (!qhUsers.contains(id))
 				qqIds.enqueue(id);
+
+		MumbleProto::ServerConfig mpsc;
+		mpsc.set_max_users(iMaxUsers);
+		sendAll(mpsc);
 	} else if (key == "usersperchannel")
 		iMaxUsersPerChannel = i ? i : Meta::mp.iMaxUsersPerChannel;
 	else if (key == "textmessagelength") {
@@ -562,7 +603,7 @@ void Server::setLiveConf(const QString &key, const QString &value) {
 	else if (key == "channelname")
 		qrChannelName=!v.isNull() ? QRegExp(v) : Meta::mp.qrChannelName;
 	else if (key == "suggestversion")
-		qvSuggestVersion = ! v.isNull() ? (v.isEmpty() ? QVariant() : v) : Meta::mp.qvSuggestVersion;
+		qvSuggestVersion = ! v.isNull() ? (v.isEmpty() ? QVariant() : normalizeSuggestVersion(v)) : Meta::mp.qvSuggestVersion;
 	else if (key == "suggestpositional")
 		qvSuggestPositional = ! v.isNull() ? (v.isEmpty() ? QVariant() : v) : Meta::mp.qvSuggestPositional;
 	else if (key == "suggestpushtotalk")
@@ -719,7 +760,7 @@ void Server::run() {
 
 				int sock = fds[i].fd;
 #else
-		{
+		for (int i=0;i<1;++i) {
 			{
 				DWORD ret = WaitForMultipleObjects(nfds, events, FALSE, INFINITE);
 				if (ret == (WAIT_OBJECT_0 + nfds - 1)) {
@@ -1161,7 +1202,7 @@ void Server::newClient() {
 
 		foreach(const Ban &ban, qlBans) {
 			if (ban.haAddress.match(ha, ban.iMask)) {
-				log(QString("Ignoring connection: %1 (Server ban)").arg(addressToString(sock->peerAddress(), sock->peerPort())));
+				log(QString("Ignoring connection: %1, Reason: %2, Username: %3, Hash: %4 (Server ban)").arg(addressToString(sock->peerAddress(), sock->peerPort()), ban.qsReason, ban.qsUsername, ban.qsHash));
 				sock->disconnectFromHost();
 				sock->deleteLater();
 				return;
@@ -1269,7 +1310,7 @@ void Server::encrypted() {
 
 		foreach(const Ban &ban, qlBans) {
 			if (ban.qsHash == uSource->qsHash) {
-				log(uSource, QString("Certificate hash is banned."));
+				log(uSource, QString("Certificate hash is banned: %1, Username: %2, Reason: %3.").arg(ban.qsHash, ban.qsUsername, ban.qsReason));
 				uSource->disconnectSocket();
 			}
 		}
@@ -1851,29 +1892,11 @@ bool Server::isTextAllowed(QString &text, bool &changed) {
 	changed = false;
 
 	if (! bAllowHTML) {
-		if (! text.contains(QLatin1Char('<'))) {
-			text = text.simplified();
-		} else {
-			QXmlStreamReader qxsr(QString::fromLatin1("<document>%1</document>").arg(text));
-			QString qs;
-			while (! qxsr.atEnd()) {
-				switch (qxsr.readNext()) {
-					case QXmlStreamReader::Invalid:
-						return false;
-					case QXmlStreamReader::Characters:
-						qs += qxsr.text();
-						break;
-					case QXmlStreamReader::EndElement:
-						if ((qxsr.name() == QLatin1String("br")) || (qxsr.name() == QLatin1String("p")))
-							qs += "\n";
-						break;
-					default:
-						break;
-				}
-			}
-			text = qs.simplified();
+		QString out;
+		if (HTMLFilter::filter(text, out)) {
+			changed = true;
+			text = out;
 		}
-		changed = true;
 		return ((iMaxTextMessageLength == 0) || (text.length() <= iMaxTextMessageLength));
 	} else {
 		int length = text.length();
@@ -1924,6 +1947,19 @@ bool Server::isTextAllowed(QString &text, bool &changed) {
 
 		return (length <= iMaxTextMessageLength);
 	}
+}
+
+bool Server::isChannelFull(Channel *c, ServerUser *u) {
+	if (u && hasPermission(u, c, ChanACL::Write)) {
+		return false;
+	}
+	if (c->uiMaxUsers) {
+		return static_cast<unsigned int>(c->qlUsers.count()) >= c->uiMaxUsers;
+	}
+	if (iMaxUsersPerChannel) {
+		return c->qlUsers.count() >= iMaxUsersPerChannel;
+	}
+	return false;
 }
 
 bool Server::canNest(Channel *newParent, Channel *channel) const {

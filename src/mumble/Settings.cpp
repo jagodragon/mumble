@@ -252,6 +252,7 @@ Settings::Settings() {
 	bTTSMessageReadBack = false;
 	iTTSVolume = 75;
 	iTTSThreshold = 250;
+	qsTTSLanguage = QString();
 	iQuality = 40000;
 	fVolume = 1.0f;
 	fOtherVolume = 0.5f;
@@ -284,7 +285,7 @@ Settings::Settings() {
 
 	uiDoublePush = 0;
 	pttHold = 0;
-	bExpert = false;
+	bExpert = true;
 
 #ifdef NO_UPDATE_CHECK
 	bUpdateCheck = false;
@@ -412,7 +413,9 @@ Settings::Settings() {
 	bShortcutEnable = true;
 	bSuppressMacEventTapWarning = false;
 	bEnableEvdev = false;
+	bEnableXInput2 = true;
 	bEnableGKey = true;
+	bEnableXboxInput = true;
 
 	for (int i=Log::firstMsgType; i<=Log::lastMsgType; ++i) {
 		qmMessages.insert(i, Settings::LogConsole | Settings::LogBalloon | Settings::LogTTS);
@@ -645,6 +648,7 @@ void Settings::load(QSettings* settings_ptr) {
 	SAVELOAD(iTTSVolume, "tts/volume");
 	SAVELOAD(iTTSThreshold, "tts/threshold");
 	SAVELOAD(bTTSMessageReadBack, "tts/readback");
+	SAVELOAD(qsTTSLanguage, "tts/language");
 
 	// Network settings
 	SAVELOAD(bTCPCompat, "net/tcponly");
@@ -660,7 +664,7 @@ void Settings::load(QSettings* settings_ptr) {
 	SAVELOAD(iMaxImageSize, "net/maximagesize");
 	SAVELOAD(iMaxImageWidth, "net/maximagewidth");
 	SAVELOAD(iMaxImageHeight, "net/maximageheight");
-	SAVELOAD(qsRegionalHost, "net/region");
+	SAVELOAD(qsServicePrefix, "net/serviceprefix");
 
 	// Network settings - SSL
 	SAVELOAD(qsSslCiphers, "net/sslciphers");
@@ -737,7 +741,9 @@ void Settings::load(QSettings* settings_ptr) {
 	SAVELOAD(bShortcutEnable, "shortcut/enable");
 	SAVELOAD(bSuppressMacEventTapWarning, "shortcut/mac/suppresswarning");
 	SAVELOAD(bEnableEvdev, "shortcut/linux/evdev/enable");
+	SAVELOAD(bEnableXInput2, "shortcut/x11/xinput2/enable");
 	SAVELOAD(bEnableGKey, "shortcut/gkey");
+	SAVELOAD(bEnableXboxInput, "shortcut/windows/xbox/enable");
 
 	int nshorts = settings_ptr->beginReadArray(QLatin1String("shortcuts"));
 	for (int i=0; i<nshorts; i++) {
@@ -952,6 +958,7 @@ void Settings::save() {
 	SAVELOAD(iTTSVolume, "tts/volume");
 	SAVELOAD(iTTSThreshold, "tts/threshold");
 	SAVELOAD(bTTSMessageReadBack, "tts/readback");
+	SAVELOAD(qsTTSLanguage, "tts/language");
 
 	// Network settings
 	SAVELOAD(bTCPCompat, "net/tcponly");
@@ -966,7 +973,7 @@ void Settings::save() {
 	SAVELOAD(iMaxImageSize, "net/maximagesize");
 	SAVELOAD(iMaxImageWidth, "net/maximagewidth");
 	SAVELOAD(iMaxImageHeight, "net/maximageheight");
-	SAVELOAD(qsRegionalHost, "net/region");
+	SAVELOAD(qsServicePrefix, "net/serviceprefix");
 
 	// Network settings - SSL
 	SAVELOAD(qsSslCiphers, "net/sslciphers");
@@ -1040,6 +1047,8 @@ void Settings::save() {
 	SAVELOAD(bShortcutEnable, "shortcut/enable");
 	SAVELOAD(bSuppressMacEventTapWarning, "shortcut/mac/suppresswarning");
 	SAVELOAD(bEnableEvdev, "shortcut/linux/evdev/enable");
+	SAVELOAD(bEnableXInput2, "shortcut/x11/xinput2/enable");
+	SAVELOAD(bEnableXboxInput, "shortcut/windows/xbox/enable");
 
 	settings_ptr->beginWriteArray(QLatin1String("shortcuts"));
 	int idx = 0;

@@ -188,6 +188,15 @@ struct Settings {
 	bool bWhisperFriends;
 	bool bTTSMessageReadBack;
 	int iTTSVolume, iTTSThreshold;
+	/// The Text-to-Speech language to use. This setting overrides
+	/// the default language for the Text-to-Speech engine, which
+	/// is usually inferred from the current locale.
+	///
+	/// The language is expected to be in BCP47 form.
+	///
+	/// The setting is currently only supported by the speech-dispatcher
+	///backend.
+	QString qsTTSLanguage;
 	int iQuality, iMinLoudness, iVoiceHold, iJitterBufferSize;
 	int iNoiseSuppress;
 
@@ -243,7 +252,9 @@ struct Settings {
 	bool bShortcutEnable;
 	bool bSuppressMacEventTapWarning;
 	bool bEnableEvdev;
+	bool bEnableXInput2;
 	bool bEnableGKey;
+	bool bEnableXboxInput;
 	QList<Shortcut> qlShortcuts;
 
 	enum MessageLog { LogNone = 0x00, LogConsole = 0x01, LogTTS = 0x02, LogBalloon = 0x04, LogSoundfile = 0x08};
@@ -301,7 +312,17 @@ struct Settings {
 	ProxyType ptProxyType;
 	QString qsProxyHost, qsProxyUsername, qsProxyPassword;
 	unsigned short usProxyPort;
-	QString qsRegionalHost;
+
+	/// The service prefix that the WebFetch class will use
+	/// when it constructs its fully-qualified URL. If this
+	/// is empty, no prefix is used.
+	///
+	/// When the WebFetch class receives a HTTP response which
+	/// includes the header "Use-Service-Prefix", this setting
+	/// is updated to reflect the received service prefix.
+	///
+	/// For more information, see the documentation for WebFetch::fetch().
+	QString qsServicePrefix;
 
 	// Network settings - SSL
 	QString qsSslCiphers;

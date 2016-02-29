@@ -64,7 +64,7 @@
 #define VICTIM_INIT \
 	ClientUser *pDst=ClientUser::get(msg.session()); \
 	 if (! pDst) { \
- 		qWarning("MainWindow: Message for nonexistant victim %d.", msg.session()); \
+ 		qWarning("MainWindow: Message for nonexistent victim %d.", msg.session()); \
 		return; \
 	}
 
@@ -190,6 +190,8 @@ void MainWindow::msgServerConfig(const MumbleProto::ServerConfig &msg) {
 		g.uiMessageLength = msg.message_length();
 	if (msg.has_image_message_length())
 		g.uiImageLength = msg.image_message_length();
+	if (msg.has_max_users())
+		g.uiMaxUsers = msg.max_users();
 }
 
 void MainWindow::msgPermissionDenied(const MumbleProto::PermissionDenied &msg) {
@@ -317,7 +319,7 @@ void MainWindow::msgUserState(const MumbleProto::UserState &msg) {
 		if (msg.has_self_deaf())
 			pDst->setSelfDeaf(msg.self_deaf());
 
-		if (pSelf && pDst != pSelf && (pDst->cChannel == pSelf->cChannel)) {
+		if (pSelf && pDst != pSelf && ((pDst->cChannel == pSelf->cChannel) || pDst->cChannel->allLinks().contains(pSelf->cChannel))) {
 			QString name = pDst->qsName;
 			if (pDst->bSelfMute && pDst->bSelfDeaf)
 				g.l->log(Log::OtherSelfMute, tr("%1 is now muted and deafened.").arg(Log::formatClientUser(pDst, Log::Target)));
@@ -350,7 +352,7 @@ void MainWindow::msgUserState(const MumbleProto::UserState &msg) {
 	}
 
 	if (msg.has_priority_speaker()) {
-		if (pSelf && ((pDst->cChannel == pSelf->cChannel) || (pSrc == pSelf))) {
+		if (pSelf && ((pDst->cChannel == pSelf->cChannel) || (pDst->cChannel->allLinks().contains(pSelf->cChannel)) || (pSrc == pSelf))) {
 			if ((pSrc == pDst) && (pSrc == pSelf)) {
 				if (pDst->bPrioritySpeaker) {
 					g.l->log(Log::YouMuted, tr("You revoked your priority speaker status."));
@@ -395,7 +397,7 @@ void MainWindow::msgUserState(const MumbleProto::UserState &msg) {
 		if (msg.has_suppress())
 			pDst->setSuppress(msg.suppress());
 
-		if (pSelf && ((pDst->cChannel == pSelf->cChannel) || (pSrc == pSelf))) {
+		if (pSelf && ((pDst->cChannel == pSelf->cChannel) || (pDst->cChannel->allLinks().contains(pSelf->cChannel)) || (pSrc == pSelf))) {
 			if (pDst == pSelf) {
 				if (msg.has_mute() && msg.has_deaf() && pDst->bMute && pDst->bDeaf) {
 					g.l->log(Log::YouMuted, tr("You were muted and deafened by %1.").arg(Log::formatClientUser(pSrc, Log::Source)));
@@ -532,8 +534,13 @@ void MainWindow::msgUserState(const MumbleProto::UserState &msg) {
 		QString newName = u8(msg.name());
 		pmModel->renameUser(pDst, newName);
 		if (! oldName.isNull() && oldName != newName) {
-			g.l->log(Log::UserRenamed, tr("%1 renamed to %2.").arg(Log::formatClientUser(pDst, Log::Target, oldName),
-				Log::formatClientUser(pDst, Log::Target)));
+			if (pSrc != pDst) {
+				g.l->log(Log::UserRenamed, tr("%1 renamed to %2 by %3.").arg(Log::formatClientUser(pDst, Log::Target, oldName))
+					.arg(Log::formatClientUser(pDst, Log::Target)).arg(Log::formatClientUser(pSrc, Log::Source)));
+			} else {
+				g.l->log(Log::UserRenamed, tr("%1 renamed to %2.").arg(Log::formatClientUser(pDst, Log::Target, oldName),
+					Log::formatClientUser(pDst, Log::Target)));
+			}
 		}
 	}
 	if (msg.has_texture_hash()) {
@@ -576,7 +583,7 @@ void MainWindow::msgUserRemove(const MumbleProto::UserRemove &msg) {
 		else
 			g.l->log((pSrc == pSelf) ? Log::YouKicked : Log::UserKicked, tr("%3 was kicked from the server by %1: %2.").arg(Log::formatClientUser(pSrc, Log::Source)).arg(reason).arg(Log::formatClientUser(pDst, Log::Target)));
 	} else {
-		if (pDst->cChannel == pSelf->cChannel) {
+		if (pDst->cChannel == pSelf->cChannel || pDst->cChannel->allLinks().contains(pSelf->cChannel)) {
 			g.l->log(Log::ChannelLeave, tr("%1 left channel and disconnected.").arg(Log::formatClientUser(pDst, Log::Source)));
 		} else {
 			g.l->log(Log::UserLeave, tr("%1 disconnected.").arg(Log::formatClientUser(pDst, Log::Source)));
@@ -666,6 +673,10 @@ void MainWindow::msgChannelState(const MumbleProto::ChannelState &msg) {
 		}
 		if (! ql.isEmpty())
 			pmModel->linkChannels(c, ql);
+	}
+
+	if (msg.has_max_users()) {
+		c->uiMaxUsers = msg.max_users();
 	}
 }
 

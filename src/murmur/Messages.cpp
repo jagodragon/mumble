@@ -149,7 +149,7 @@ void Server::msgAuthenticate(ServerUser *uSource, MumbleProto::Authenticate &msg
 		if (u == uSource)
 			continue;
 		if (((u->iId>=0) && (u->iId == uSource->iId)) ||
-		        (u->qsName == uSource->qsName)) {
+		        (u->qsName.toLower() == uSource->qsName.toLower())) {
 			uOld = u;
 			break;
 		}
@@ -174,6 +174,25 @@ void Server::msgAuthenticate(ServerUser *uSource, MumbleProto::Authenticate &msg
 		reason = QString::fromLatin1("A certificate is required to connect to this server");
 		rtType = MumbleProto::Reject_RejectType_NoCertificate;
 		ok = false;
+	}
+
+	Channel *lc;
+	if (bRememberChan) {
+		lc = qhChannels.value(readLastChannel(uSource->iId));
+	} else {
+		lc = qhChannels.value(iDefaultChan);
+	}
+
+	if (! lc || ! hasPermission(uSource, lc, ChanACL::Enter) || isChannelFull(lc, uSource)) {
+		lc = qhChannels.value(iDefaultChan);
+		if (! lc || ! hasPermission(uSource, lc, ChanACL::Enter) || isChannelFull(lc, uSource)) {
+			lc = root;
+			if (isChannelFull(lc, uSource)) {
+				reason = QString::fromLatin1("Server channels are full");
+				rtType = MumbleProto::Reject_RejectType_ServerFull;
+				ok = false;
+			}
+		}
 	}
 
 	if (! ok) {
@@ -257,6 +276,8 @@ void Server::msgAuthenticate(ServerUser *uSource, MumbleProto::Authenticate &msg
 		else if (! c->qsDesc.isEmpty())
 			mpcs.set_description(u8(c->qsDesc));
 
+		mpcs.set_max_users(c->uiMaxUsers);
+
 		sendMessage(uSource, mpcs);
 
 		foreach(c, c->qlChannels)
@@ -277,19 +298,6 @@ void Server::msgAuthenticate(ServerUser *uSource, MumbleProto::Authenticate &msg
 
 	// Transmit user profile
 	MumbleProto::UserState mpus;
-
-	Channel *lc;
-	if (bRememberChan)
-		lc = qhChannels.value(readLastChannel(uSource->iId));
-	else
-		lc = qhChannels.value(iDefaultChan);
-
-	if (! lc || ! hasPermission(uSource, lc, ChanACL::Enter)) {
-		lc = qhChannels.value(iDefaultChan);
-		if (! lc || ! hasPermission(uSource, lc, ChanACL::Enter)) {
-			lc = root;
-		}
-	}
 
 	userEnterChannel(uSource, lc, mpus);
 
@@ -396,6 +404,7 @@ void Server::msgAuthenticate(ServerUser *uSource, MumbleProto::Authenticate &msg
 	mpsc.set_allow_html(bAllowHTML);
 	mpsc.set_message_length(iMaxTextMessageLength);
 	mpsc.set_image_message_length(iMaxImageMessageLength);
+	mpsc.set_max_users(iMaxUsers);
 	sendMessage(uSource, mpsc);
 
 	MumbleProto::SuggestConfig mpsug;
@@ -517,7 +526,7 @@ void Server::msgUserState(ServerUser *uSource, MumbleProto::UserState &msg) {
 			PERM_DENIED(pDstServerUser, c, ChanACL::Enter);
 			return;
 		}
-		if (iMaxUsersPerChannel && (c->qlUsers.count() >= iMaxUsersPerChannel)) {
+		if (isChannelFull(c, uSource)) {
 			PERM_DENIED_FALLBACK(ChannelFull, 0x010201, QLatin1String("Channel is full"));
 			return;
 		}
@@ -898,7 +907,7 @@ void Server::msgChannelState(ServerUser *uSource, MumbleProto::ChannelState &msg
 			return;
 		}
 
-		c = addChannel(p, qsName, msg.temporary(), msg.position());
+		c = addChannel(p, qsName, msg.temporary(), msg.position(), msg.max_users());
 		hashAssign(c->qsDesc, c->qbaDescHash, qsDesc);
 
 		if (uSource->iId >= 0) {
@@ -1059,6 +1068,9 @@ void Server::msgChannelState(ServerUser *uSource, MumbleProto::ChannelState &msg
 		foreach(Channel *l, qlRemove) {
 			removeLink(c, l);
 		}
+
+		if (msg.has_max_users())
+			c->uiMaxUsers = msg.max_users();
 
 		updateChannel(c);
 		emit channelStateChanged(c);
@@ -1511,6 +1523,7 @@ void Server::msgUserList(ServerUser *uSource, MumbleProto::UserList &msg) {
 						}
 					}
 					if (mpus.has_session()) {
+						mpus.set_actor(uSource->uiSession);
 						mpus.set_name(u8(name));
 						sendAll(mpus);
 					}

@@ -75,6 +75,10 @@
 #include "TaskList.h"
 #endif
 
+#ifdef Q_OS_MAC
+#include "AppNap.h"
+#endif
+
 #ifdef USE_COCOA
 #include "ConfigDialog_macx.h"
 #endif
@@ -360,12 +364,10 @@ void MainWindow::setupGui()  {
 	else if (! g.s.bMinimalView && ! g.s.qbaMainWindowGeometry.isNull())
 		restoreGeometry(g.s.qbaMainWindowGeometry);
 
-	Settings::WindowLayout wlTmp = g.s.wlWindowLayout;
 	if (g.s.bMinimalView && ! g.s.qbaMinimalViewState.isNull())
 		restoreState(g.s.qbaMinimalViewState);
 	else if (! g.s.bMinimalView && ! g.s.qbaMainWindowState.isNull())
 		restoreState(g.s.qbaMainWindowState);
-	g.s.wlWindowLayout = wlTmp;
 
 	setupView(false);
 
@@ -395,6 +397,21 @@ void MainWindow::updateWindowTitle() {
 		title = tr("Mumble -- %1");
 	}
 	setWindowTitle(title.arg(QLatin1String(MUMBLE_RELEASE)));
+}
+
+void MainWindow::updateToolbar() {
+	bool layoutIsCustom = g.s.wlWindowLayout == Settings::LayoutCustom;
+
+	qtIconToolbar->setMovable(layoutIsCustom);
+
+	// Update the toolbar so the movable flag takes effect.
+	if (layoutIsCustom) {
+		// Update the toolbar, but keep it in place.
+		addToolBar(toolBarArea(qtIconToolbar), qtIconToolbar);
+	} else {
+		// Update the toolbar, and ensure it is at the top of the window.
+		addToolBar(Qt::TopToolBarArea, qtIconToolbar);
+	}
 }
 
 // Sets whether or not to show the title bars on the MainWindow's
@@ -560,6 +577,14 @@ void MainWindow::updateTransmitModeComboBox() {
 	}
 }
 
+QMenu *MainWindow::createPopupMenu() {
+	if (g.s.wlWindowLayout == Settings::LayoutCustom) {
+		return QMainWindow::createPopupMenu();
+	}
+
+	return NULL;
+}
+
 Channel *MainWindow::getContextMenuChannel() {
 	if (cContextChannel)
 		return cContextChannel.data();
@@ -654,10 +679,69 @@ void MainWindow::on_qteLog_customContextMenuRequested(const QPoint &mpos) {
 
 	QPoint contentPosition = QPoint(QApplication::isRightToLeft() ? (qteLog->horizontalScrollBar()->maximum() - qteLog->horizontalScrollBar()->value()) : qteLog->horizontalScrollBar()->value(), qteLog->verticalScrollBar()->value());
 	QMenu *menu = qteLog->createStandardContextMenu(mpos + contentPosition);
+
+	QTextCursor cursor = qteLog->cursorForPosition(mpos);
+	QTextCharFormat fmt = cursor.charFormat();
+	if (fmt.objectType() == QTextFormat::NoObject) {
+		cursor.movePosition(QTextCursor::NextCharacter);
+		fmt = cursor.charFormat();
+	}
+	if (cursor.charFormat().isImageFormat()) {
+		menu->addSeparator();
+		menu->addAction(tr("Save Image As..."), this, SLOT(saveImageAs(void)));
+
+		qtcSaveImageCursor = cursor;
+	}
+
 	menu->addSeparator();
 	menu->addAction(tr("Clear"), qteLog, SLOT(clear(void)));
 	menu->exec(qteLog->mapToGlobal(mpos));
 	delete menu;
+}
+
+void MainWindow::saveImageAs() {
+	QDateTime now = QDateTime::currentDateTime();
+	QString defaultFname = QString::fromLatin1("Mumble-%1.jpg").arg(now.toString(QString::fromLatin1("yyyy-MM-dd-HHmmss")));
+
+	QString fname = QFileDialog::getSaveFileName(this, tr("Save Image File"), getImagePath(defaultFname), tr("Images (*.png *.jpg *.jpeg)"));
+	if (fname.isNull()) {
+		return;
+	}
+
+	QString resName = qtcSaveImageCursor.charFormat().toImageFormat().name();
+	QVariant res = qteLog->document()->resource(QTextDocument::ImageResource, resName);
+	QImage img = res.value<QImage>();
+	bool ok = img.save(fname);
+	if (!ok) {
+		// In case fname did not contain a file extension, try saving with an
+		// explicit format.
+		ok = img.save(fname, "PNG");
+	}
+
+	updateImagePath(fname);
+
+	if (!ok) {
+		g.l->log(Log::Warning, tr("Could not save image: %1").arg(Qt::escape(fname)));
+	}
+}
+
+QString MainWindow::getImagePath(QString filename) const {
+	if (g.s.qsImagePath.isEmpty() || ! QDir(g.s.qsImagePath).exists()) {
+#if QT_VERSION >= 0x050000
+		g.s.qsImagePath = QStandardPaths::writableLocation(QStandardPaths::PicturesLocation);
+#else
+		g.s.qsImagePath = QDesktopServices::storageLocation(QDesktopServices::PicturesLocation);
+#endif
+	}
+	if (filename.isEmpty()) {
+		return g.s.qsImagePath;
+	}
+	return g.s.qsImagePath + QDir::separator() + filename;
+}
+
+void MainWindow::updateImagePath(QString filepath) const {
+	QFileInfo fi(filepath);
+	g.s.qsImagePath = fi.absolutePath();
 }
 
 static void recreateServerHandler() {
@@ -841,9 +925,7 @@ void MainWindow::setOnTop(bool top) {
 void MainWindow::setupView(bool toggle_minimize) {
 	bool showit = ! g.s.bMinimalView;
 
-	// Update window layout
-	Settings::WindowLayout wlTmp = g.s.wlWindowLayout;
-	switch (wlTmp) {
+	switch (g.s.wlWindowLayout) {
 		case Settings::LayoutClassic:
 			removeDockWidget(qdwLog);
 			addDockWidget(Qt::LeftDockWidgetArea, qdwLog);
@@ -867,11 +949,12 @@ void MainWindow::setupView(bool toggle_minimize) {
 			qdwChat->show();
 			break;
 		default:
-			wlTmp = Settings::LayoutCustom;
 			break;
 	}
+
+	updateToolbar();
+
 	qteChat->updateGeometry();
-	g.s.wlWindowLayout = wlTmp;
 
 	QRect geom = frameGeometry();
 
@@ -1093,11 +1176,12 @@ void MainWindow::qcbTransmitMode_activated(int index) {
 void MainWindow::on_qmServer_aboutToShow() {
 	qmServer->clear();
 	qmServer->addAction(qaServerConnect);
+	qmServer->addSeparator();
 	qmServer->addAction(qaServerDisconnect);
-	qmServer->addAction(qaServerBanList);
-	qmServer->addAction(qaServerUserList);
 	qmServer->addAction(qaServerInformation);
 	qmServer->addAction(qaServerTokens);
+	qmServer->addAction(qaServerUserList);
+	qmServer->addAction(qaServerBanList);
 	qmServer->addSeparator();
 	qmServer->addAction(qaQuit);
 
@@ -1228,6 +1312,9 @@ void MainWindow::on_qaServerInformation_triggered() {
 	                  QString::fromLatin1("%1").arg(sqrt(boost::accumulators::variance(g.sh->accTCP)),0,'f',2),
 	                  Qt::escape(host),
 	                  QString::number(port));
+	if (g.uiMaxUsers) {
+		qsControl += tr("<p>Connected users: %1/%2</p>").arg(ModelItem::c_qhUsers.count()).arg(g.uiMaxUsers);
+	}
 
 	QString qsVoice, qsCrypt, qsAudio;
 
@@ -1457,14 +1544,8 @@ void MainWindow::on_qaUserLocalVolume_triggered() {
 
 void MainWindow::openUserLocalVolumeDialog(ClientUser *p) {
 	unsigned int session = p->uiSession;
-	::UserLocalVolumeDialog *uservol = new ::UserLocalVolumeDialog(this, session);
-	uservol->exec();
-	p = ClientUser::get(session);
-	if (p && ! p->qsHash.isEmpty()) {
-		Database::setUserLocalVolume(p->qsHash, p->fLocalVolume);
-	}
-
-	delete uservol;
+	UserLocalVolumeDialog *uservol = new UserLocalVolumeDialog(session);
+	uservol->show();
 }
 
 void MainWindow::on_qaUserDeaf_triggered() {
@@ -2627,6 +2708,11 @@ void MainWindow::serverConnected() {
 #endif
 	g.iCodecBeta = 0;
 
+#ifdef Q_OS_MAC
+	// Suppress AppNap while we're connected to a server.
+	MUSuppressAppNap(true);
+#endif
+
 	g.l->clearIgnore();
 	g.l->setIgnore(Log::UserJoin);
 	g.l->setIgnore(Log::OtherSelfMute);
@@ -2648,6 +2734,7 @@ void MainWindow::serverConnected() {
 	g.bAllowHTML = true;
 	g.uiMessageLength = 5000;
 	g.uiImageLength = 131072;
+	g.uiMaxUsers = 0;
 
 	if (g.s.bMute || g.s.bDeaf) {
 		g.sh->setSelfMuteDeafState(g.s.bMute, g.s.bDeaf);
@@ -2675,6 +2762,11 @@ void MainWindow::serverDisconnected(QAbstractSocket::SocketError err, QString re
 	qtvUsers->setCurrentIndex(QModelIndex());
 	qteChat->setEnabled(false);
 	updateTrayIcon();
+
+#ifdef Q_OS_MAC
+	// Remove App Nap suppression now that we're disconnected.
+	MUSuppressAppNap(false);
+#endif
 
 	QString uname, pw, host;
 	unsigned short port;
@@ -2982,22 +3074,6 @@ void MainWindow::on_qteLog_highlighted(const QUrl &url) {
 	}
 }
 
-void MainWindow::on_qdwChat_dockLocationChanged(Qt::DockWidgetArea) {
-	g.s.wlWindowLayout = Settings::LayoutCustom;
-}
-
-void MainWindow::on_qdwLog_dockLocationChanged(Qt::DockWidgetArea) {
-	g.s.wlWindowLayout = Settings::LayoutCustom;
-}
-
-void MainWindow::on_qdwChat_visibilityChanged(bool) {
-	g.s.wlWindowLayout = Settings::LayoutCustom;
-}
-
-void MainWindow::on_qdwLog_visibilityChanged(bool) {
-	g.s.wlWindowLayout = Settings::LayoutCustom;
-}
-
 void MainWindow::context_triggered() {
 	QAction *a = qobject_cast<QAction *>(sender());
 
@@ -3020,15 +3096,7 @@ void MainWindow::context_triggered() {
 QPair<QByteArray, QImage> MainWindow::openImageFile() {
 	QPair<QByteArray, QImage> retval;
 
-	if (g.s.qsImagePath.isEmpty() || ! QDir::root().exists(g.s.qsImagePath)) {
-#if QT_VERSION >= 0x050000
-		g.s.qsImagePath = QStandardPaths::writableLocation(QStandardPaths::PicturesLocation);
-#else
-		g.s.qsImagePath = QDesktopServices::storageLocation(QDesktopServices::PicturesLocation);
-#endif
-	}
-
-	QString fname = QFileDialog::getOpenFileName(this, tr("Choose image file"), g.s.qsImagePath, tr("Images (*.png *.jpg *.jpeg)"));
+	QString fname = QFileDialog::getOpenFileName(this, tr("Choose image file"), getImagePath(), tr("Images (*.png *.jpg *.jpeg)"));
 
 	if (fname.isNull())
 		return retval;
@@ -3039,8 +3107,7 @@ QPair<QByteArray, QImage> MainWindow::openImageFile() {
 		return retval;
 	}
 
-	QFileInfo fi(f);
-	g.s.qsImagePath = fi.absolutePath();
+	updateImagePath(fname);
 
 	QByteArray qba = f.readAll();
 	f.close();

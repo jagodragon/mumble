@@ -95,7 +95,15 @@ ServerHandler::ServerHandler() {
 	tConnectionTimeoutTimer = NULL;
 	uiVersion = 0;
 
-	// For some strange reason, on Win32, we have to call supportsSsl before the cipher list is ready.
+	// Historically, the qWarning line below initialized OpenSSL for us.
+	// It used to have this comment:
+	//
+	//     "For some strange reason, on Win32, we have to call
+	//      supportsSsl before the cipher list is ready."
+	//
+	// Now, OpenSSL is initialized in main() via MumbleSSL::initialize(),
+	// but since it's handy to have the OpenSSL version available, we
+	// keep this one around as well.
 	qWarning("OpenSSL Support: %d (%s)", QSslSocket::supportsSsl(), SSLeay_version(SSLEAY_VERSION));
 
 	MumbleSSL::addSystemCA();
@@ -680,13 +688,14 @@ void ServerHandler::joinChannel(unsigned int uiSession, unsigned int channel) {
 	sendMessage(mpus);
 }
 
-void ServerHandler::createChannel(unsigned int parent_id, const QString &name, const QString &description, unsigned int position, bool temporary) {
+void ServerHandler::createChannel(unsigned int parent_id, const QString &name, const QString &description, unsigned int position, bool temporary, unsigned int maxUsers) {
 	MumbleProto::ChannelState mpcs;
 	mpcs.set_parent(parent_id);
 	mpcs.set_name(u8(name));
 	mpcs.set_description(u8(description));
 	mpcs.set_position(position);
 	mpcs.set_temporary(temporary);
+	mpcs.set_max_users(maxUsers);
 	sendMessage(mpcs);
 }
 

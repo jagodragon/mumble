@@ -84,6 +84,9 @@ static void murmurMessageOutputQString(QtMsgType type, const QString &msg) {
 			break;
 		}
 		syslog(level, "%s", qPrintable(msg));
+		if (type == QtFatalMsg) {
+			exit(1);
+		}
 		return;
 	}
 #endif
@@ -146,7 +149,7 @@ static void murmurMessageOutputQString(QtMsgType type, const QString &msg) {
 #else
 		::MessageBoxA(NULL, qPrintable(m), "Murmur", MB_OK | MB_ICONWARNING);
 #endif
-		exit(0);
+		exit(1);
 	}
 }
 
@@ -180,6 +183,7 @@ int main(int argc, char **argv) {
 	}
 
 	SetDllDirectory(L"");
+
 #endif
 	int res;
 
@@ -208,6 +212,8 @@ int main(int argc, char **argv) {
 	a.setApplicationName("Murmur");
 	a.setOrganizationName("Mumble");
 	a.setOrganizationDomain("mumble.sourceforge.net");
+
+	MumbleSSL::initialize();
 
 	QTextCodec::setCodecForLocale(QTextCodec::codecForName("UTF-8"));
 #if QT_VERSION < 0x050000

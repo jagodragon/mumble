@@ -34,6 +34,11 @@
 
 #include "Version.h"
 
+void MumbleSSL::initialize() {
+	// Let Qt initialize OpenSSL...
+	QSslSocket::supportsSsl();
+}
+
 QString MumbleSSL::defaultOpenSSLCipherString() {
 	return QLatin1String("EECDH+AESGCM:EDH+aRSA+AESGCM:DHE-RSA-AES256-SHA:DHE-RSA-AES128-SHA:AES256-SHA:AES128-SHA");
 }
@@ -55,7 +60,8 @@ QList<QSslCipher> MumbleSSL::ciphersFromOpenSSLCipherString(QString cipherString
 		goto out;
 	}
 
-	ctx = SSL_CTX_new(meth);
+	// We use const_cast to be compatible with OpenSSL 0.9.8.
+	ctx = SSL_CTX_new(const_cast<SSL_METHOD *>(meth));
 	if (ctx == NULL) {
 		qWarning("MumbleSSL: unable to allocate SSL_CTX");
 		goto out;

@@ -59,7 +59,11 @@ MetaParams::MetaParams() {
 	iMaxUsersPerChannel = 0;
 	iMaxTextMessageLength = 5000;
 	iMaxImageMessageLength = 131072;
+#if OPENSSL_VERSION_NUMBER <= 0x00090900fL
+	legacyPasswordHash = true;
+#else
 	legacyPasswordHash = false;
+#endif
 	kdfIterations = -1;
 	bAllowHTML = true;
 	iDefaultChan = 0;
@@ -185,6 +189,7 @@ void MetaParams::read(QString fname) {
 			qFatal("Specified ini file %s could not be opened", qPrintable(fname));
 		}
 		qdBasePath = QFileInfo(f).absoluteDir();
+		fname = QFileInfo(f).absoluteFilePath();
 		f.close();
 	}
 	QDir::setCurrent(qdBasePath.absolutePath());
@@ -282,7 +287,11 @@ void MetaParams::read(QString fname) {
 	iTimeout = typeCheckedFromSettings("timeout", iTimeout);
 	iMaxTextMessageLength = typeCheckedFromSettings("textmessagelength", iMaxTextMessageLength);
 	iMaxImageMessageLength = typeCheckedFromSettings("imagemessagelength", iMaxImageMessageLength);
+#if OPENSSL_VERSION_NUMBER <= 0x00090900fL
+	legacyPasswordHash = true;
+#else
 	legacyPasswordHash = typeCheckedFromSettings("legacypasswordhash", legacyPasswordHash);
+#endif
 	kdfIterations = typeCheckedFromSettings("kdfiterations", -1);
 	bAllowHTML = typeCheckedFromSettings("allowhtml", bAllowHTML);
 	iMaxBandwidth = typeCheckedFromSettings("bandwidth", iMaxBandwidth);
@@ -524,6 +533,10 @@ void MetaParams::read(QString fname) {
 
 	qWarning("OpenSSL: %s", SSLeay_version(SSLEAY_VERSION));
 
+#if OPENSSL_VERSION_NUMBER <= 0x00090900fL
+	qWarning("Meta: PBKDF2 support is disabled. Using legacy password hashing.");
+#endif
+
 	qmConfig.clear();
 	QStringList hosts;
 	foreach(const QHostAddress &qha, qlBind) {
@@ -641,7 +654,7 @@ bool Meta::boot(int srvnum) {
 			}
 		}
 		if (r.rlim_cur < sockets)
-			qCritical("Current booted servers require minimum %d file descriptors when all slots are full, but only %ld file descriptors are allowed for this process. Your server will crash and burn; read the FAQ for details.", sockets, r.rlim_cur);
+			qCritical("Current booted servers require minimum %d file descriptors when all slots are full, but only %lu file descriptors are allowed for this process. Your server will crash and burn; read the FAQ for details.", sockets, static_cast<unsigned long>(r.rlim_cur));
 	}
 #endif
 

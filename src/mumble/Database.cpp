@@ -84,16 +84,19 @@ Database::Database() {
 
 	for (i = 0; (i < datapaths.size()) && ! found; i++) {
 		if (!datapaths[i].isEmpty()) {
-			QFile f(datapaths[i] + QLatin1String("/mumble.sqlite"));
-			if (f.exists()) {
-				db.setDatabaseName(f.fileName());
+			// Try the legacy path first, and use it if it exists.
+			// If it doesn't, use the new, non-hidden version.
+			QFile legacyDatabaseFile(datapaths[i] + QLatin1String("/.mumble.sqlite"));
+			if (legacyDatabaseFile.exists()) {
+				db.setDatabaseName(legacyDatabaseFile.fileName());
 				found = db.open();
 			}
-
-			//TODO: If the above succeeds, but we also have a .mumble.sqlite, we open another DB!?
-			QFile f2(datapaths[i] + QLatin1String("/.mumble.sqlite"));
-			if (f2.exists()) {
-				db.setDatabaseName(f2.fileName());
+			if (found) {
+				break;
+			}
+			QFile databaseFile(datapaths[i] + QLatin1String("/mumble.sqlite"));
+			if (databaseFile.exists()) {
+				db.setDatabaseName(databaseFile.fileName());
 				found = db.open();
 			}
 		}
@@ -103,11 +106,7 @@ Database::Database() {
 		for (i = 0; (i < datapaths.size()) && ! found; i++) {
 			if (!datapaths[i].isEmpty()) {
 				QDir::root().mkpath(datapaths[i]);
-#ifdef Q_OS_WIN
 				QFile f(datapaths[i] + QLatin1String("/mumble.sqlite"));
-#else
-				QFile f(datapaths[i] + QLatin1String("/.mumble.sqlite"));
-#endif
 				db.setDatabaseName(f.fileName());
 				found = db.open();
 			}

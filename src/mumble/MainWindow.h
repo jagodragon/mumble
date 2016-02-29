@@ -121,6 +121,10 @@ class MainWindow : public QMainWindow, public MessageHandler, public Ui::MainWin
 		bool restartOnQuit;
 		bool bAutoUnmute;
 
+		/// Contains the cursor whose position is immediately before the image to
+		/// save when activating the "Save Image As..." context menu item.
+		QTextCursor qtcSaveImageCursor;
+
 #if QT_VERSION >= 0x050000
 		QPointer<Channel> cContextChannel;
 		QPointer<ClientUser> cuContextUser;
@@ -175,6 +179,12 @@ class MainWindow : public QMainWindow, public MessageHandler, public Ui::MainWin
 		void createActions();
 		void setupGui();
 		void updateWindowTitle();
+		/// updateToolbar updates the state of the toolbar depending on the current
+		/// window layout setting.
+		/// If the window layout setting is 'custom', the toolbar is made movable. If the
+		/// window layout is not 'custom', the toolbar is locked in place at the top of
+		/// the MainWindow.
+		void updateToolbar();
 		void customEvent(QEvent *evt) Q_DECL_OVERRIDE;
 		void findDesiredChannel();
 		void setupView(bool toggle_minimize = true);
@@ -182,6 +192,8 @@ class MainWindow : public QMainWindow, public MessageHandler, public Ui::MainWin
 		void hideEvent(QHideEvent *e) Q_DECL_OVERRIDE;
 		void showEvent(QShowEvent *e) Q_DECL_OVERRIDE;
 		void changeEvent(QEvent* e) Q_DECL_OVERRIDE;
+
+		QMenu *createPopupMenu() Q_DECL_OVERRIDE;
 
 		bool handleSpecialContextMenu(const QUrl &url, const QPoint &pos_, bool focus = false);
 		Channel* getContextMenuChannel();
@@ -255,10 +267,6 @@ class MainWindow : public QMainWindow, public MessageHandler, public Ui::MainWin
 		void on_qteLog_customContextMenuRequested(const QPoint &pos);
 		void on_qteLog_anchorClicked(const QUrl &);
 		void on_qteLog_highlighted(const QUrl & link);
-		void on_qdwChat_dockLocationChanged(Qt::DockWidgetArea);
-		void on_qdwLog_dockLocationChanged(Qt::DockWidgetArea);
-		void on_qdwChat_visibilityChanged(bool);
-		void on_qdwLog_visibilityChanged(bool);
 		void on_PushToTalk_triggered(bool, QVariant);
 		void on_PushToMute_triggered(bool, QVariant);
 		void on_VolumeUp_triggered(bool, QVariant);
@@ -292,6 +300,14 @@ class MainWindow : public QMainWindow, public MessageHandler, public Ui::MainWin
 		void whisperReleased(QVariant scdata);
 		void onResetAudio();
 		void on_qaFilterToggle_triggered();
+		/// Opens a save dialog for the image referenced by qtcSaveImageCursor.
+		void saveImageAs();
+		/// Returns the path to the user's image directory, optionally with a
+		/// filename included.
+		QString getImagePath(QString filename = QString()) const;
+		/// Updates the user's image directory to the given path (any included
+		/// filename is discarded).
+		void updateImagePath(QString filepath) const;
 
 	public:
 		MainWindow(QWidget *parent);

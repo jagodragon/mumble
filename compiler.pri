@@ -2,6 +2,12 @@ include(qt.pri)
  
 CONFIG *= warn_on
 
+# Enable zlib compression for assets
+# embedded via rcc. This is done to
+# keep the size of rcc's output
+# source files under control.
+QMAKE_RESOURCE_FLAGS += -compress 9
+
 win32 {
 	# Import dependency paths for windows
 	include(winpaths_default.pri)
@@ -43,6 +49,33 @@ win32 {
 	}
 	isEmpty(INCLUDE_VAR) {
 		error("The INCLUDE environment variable is not set. Are you not in a build environment?")
+	}
+
+	CONFIG(analyze) {
+		QMAKE_CFLAGS_DEBUG *= /analyze
+		QMAKE_CXXFLAGS_DEBUG *= /analyze
+		QMAKE_CFLAGS_RELEASE *= /analyze
+		QMAKE_CXXFLAGS_RELEASE *= /analyze
+
+		# Do not treat warnings as errors when
+		# running the static analyzer.
+		# Otherwise, we won't get very far!
+		CONFIG *= no-warnings-as-errors
+	}
+
+	!CONFIG(no-warnings-as-errors) {
+		QMAKE_CFLAGS *= -WX
+		QMAKE_CXXFLAGS *= -WX
+		QMAKE_LFLAGS *= -WX
+	}
+
+	# Increase the verbosity of the linker.
+	# For now, only increases the verbosity
+	# of searching for libraries.
+	# This is useful when diagnosing libraries
+	# that use a wrong runtime library DLL.
+	CONFIG(verbose-linker) {
+		QMAKE_LFLAGS *= /VERBOSE:LIB
 	}
 
 	# Increase PCH heap to 150MB: https://msdn.microsoft.com/en-us/library/bdscwf1c.aspx
@@ -99,12 +132,6 @@ win32 {
 		QMAKE_LFLAGS_WINDOWS += /SUBSYSTEM:WINDOWS,6.00
 	}
 
-	CONFIG(analyze) {
-		QMAKE_CFLAGS_DEBUG *= /analyze
-		QMAKE_CXXFLAGS_DEBUG *= /analyze
-		QMAKE_CFLAGS_RELEASE *= /analyze
-		QMAKE_CXXFLAGS_RELEASE *= /analyze
-	}
 	DEFINES *= RESTRICT=
 	CONFIG(sse2) {
 	      QMAKE_CFLAGS_RELEASE -= -arch:SSE
@@ -157,13 +184,19 @@ unix {
 	DEFINES *= RESTRICT=__restrict__
 	QMAKE_CFLAGS *= -fvisibility=hidden
 	QMAKE_CXXFLAGS *= -fvisibility=hidden
+	QMAKE_OBJECTIVE_CFLAGS *= -fvisibility=hidden
+	QMAKE_OBJECTIVE_CXXFLAGS *= -fvisibility=hidden
 
-	QMAKE_CXXFLAGS	*= -Wall -Wextra
-	QMAKE_CFLAGS	*= -Wall -Wextra
+	QMAKE_CFLAGS	         *= -Wall -Wextra
+	QMAKE_CXXFLAGS           *= -Wall -Wextra
+	QMAKE_OBJECTIVE_CFLAGS   *= -Wall -Wextra
+	QMAKE_OBJECTIVE_CXXFLAGS *= -Wall -Wextra
 
 	!CONFIG(no-warnings-as-errors) {
-		QMAKE_CXXFLAGS	*= -Werror
-		QMAKE_CFLAGS	*= -Werror
+		QMAKE_CFLAGS	         *= -Werror
+		QMAKE_CXXFLAGS	         *= -Werror
+		QMAKE_OBJECTIVE_CFLAGS   *= -Werror
+		QMAKE_OBJECTIVE_CXXFLAGS *= -Werror
 	}
 
 	CONFIG(opt-gcc) {
@@ -175,19 +208,24 @@ unix {
 	CONFIG(optgen) {
 		QMAKE_CFLAGS *= -O3 -march=native -ffast-math -ftree-vectorize -fprofile-generate
 		QMAKE_CXXFLAGS *= -O3 -march=native -ffast-math -ftree-vectorize -fprofile-generate
+		QMAKE_OBJECTIVE_CFLAGS *= -O3 -march=native -ffast-math -ftree-vectorize -fprofile-generate
+		QMAKE_OBJECTIVE_CXXFLAGS *= -O3 -march=native -ffast-math -ftree-vectorize -fprofile-generate
 		QMAKE_LFLAGS *= -fprofile-generate
 	}
 
 	CONFIG(optimize) {
 		QMAKE_CFLAGS *= -O3 -march=native -ffast-math -ftree-vectorize -fprofile-use
 		QMAKE_CXXFLAGS *= -O3 -march=native -ffast-math -ftree-vectorize -fprofile-use
+		QMAKE_OBJECTIVE_CFLAGS *= -O3 -march=native -ffast-math -ftree-vectorize -fprofile-use
+		QMAKE_OBJECTIVE_CXXFLAGS *= -O3 -march=native -ffast-math -ftree-vectorize -fprofile-use
 	}
 }
 
-freebsd-clang {
+freebsd {
 	QMAKE_CFLAGS *= -isystem /usr/local/include
-	QMAKE_CXXFLAGS	*= -isystem /usr/local/include
-	QMAKE_LFLAGS *= -L/usr/local/lib -lssl
+	QMAKE_CXXFLAGS *= -isystem /usr/local/include
+	QMAKE_LIBDIR *= /usr/lib
+	QMAKE_LIBDIR *= /usr/local/lib
 }
 
 unix:!macx {
@@ -205,12 +243,14 @@ unix:!macx {
 	}
 
 	CONFIG(debug, debug|release) {
-		QMAKE_CFLAGS *= -fstack-protector -fPIE -pie
-		QMAKE_CXXFLAGS *= -fstack-protector -fPIE -pie
-		QMAKE_LFLAGS = -Wl,--no-add-needed
+		QMAKE_CFLAGS *= -fstack-protector -fPIE
+		QMAKE_CXXFLAGS *= -fstack-protector -fPIE
+		QMAKE_LFLAGS *= -pie
+		QMAKE_LFLAGS *= -Wl,--no-add-needed
 	}
 
-	DEFINES *= _FORTIFY_SOURCE=2
+	QMAKE_CFLAGS *= -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=2
+	QMAKE_CXXFLAGS *= -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=2
 	QMAKE_LFLAGS *= -Wl,-z,relro -Wl,-z,now
 
 	CONFIG(symbols) {
@@ -250,11 +290,11 @@ macx {
 		QMAKE_CC = $$system(xcrun -find clang)
 		QMAKE_CXX = $$system(xcrun -find clang++)
 		QMAKE_LINK = $$system(xcrun -find clang++)
-		QMAKE_MACOSX_DEPLOYMENT_TARGET = 10.6
-		QMAKE_CFLAGS += -mmacosx-version-min=10.6
-		QMAKE_CXXFLAGS += -mmacosx-version-min=10.6
-		QMAKE_OBJECTIVE_CFLAGS += -mmacosx-version-min=10.6
-		QMAKE_OBJECTIVE_CXXFLAGS += -mmacosx-version-min=10.6
+		QMAKE_MACOSX_DEPLOYMENT_TARGET = 10.7
+		QMAKE_CFLAGS += -mmacosx-version-min=10.7
+		QMAKE_CXXFLAGS += -mmacosx-version-min=10.7
+		QMAKE_OBJECTIVE_CFLAGS += -mmacosx-version-min=10.7
+		QMAKE_OBJECTIVE_CXXFLAGS += -mmacosx-version-min=10.7
 	} else {
 		XCODE_PATH=$$system(xcode-select -print-path)
 		CONFIG += x86 ppc no-cocoa
@@ -275,6 +315,8 @@ macx {
 	CONFIG(symbols) {
 		QMAKE_CFLAGS *= -gfull -gdwarf-2
 		QMAKE_CXXFLAGS *= -gfull -gdwarf-2
+		QMAKE_OBJECTIVE_CFLAGS *= -gfull -gdwarf-2
+		QMAKE_OBJECTIVE_CXXFLAGS *= -gfull -gdwarf-2
 	}
 }
 
